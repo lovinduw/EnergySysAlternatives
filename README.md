@@ -4,11 +4,14 @@ This repositiry includes ETHOS.FINE framework with the option to do a modeling t
 
 # Steps to follow to install fine with MGA optimization as a library
 
-1. Create virtual environment
-python -m venv myenv
+1. Create virtual environment\
+   \
+  python -m venv myenv                 
 
-2. Activate virtual environment
-myenv/Scripts/activate
+3. Activate virtual environment\
+   \
+  myenv/Scripts/activate
 
-3. Install fine library with from GitHub with all the dependencies
-pip install git+https://github.com/lovinduw/mga_in_fine.git#egg=fine
+5. Install fine library with from GitHub with all the dependencies\
+   \
+  pip install git+https://github.com/lovinduw/mga_in_fine.git#egg=fine
