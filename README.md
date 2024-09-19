@@ -4,14 +4,17 @@ This repositiry includes ETHOS.FINE framework with the option to do a modeling t
 
 # Steps to follow to install fine with MGA optimization as a library
 
+### If the python Environment is created using Create Environment command in VSCode, below 3 steps are not required to run. fine library and the dependencies will be automatically installed during the Environment creation process 
+
 1. Create virtual environment\
    \
   python -m venv myenv                 
 
-3. Activate virtual environment\
+2. Activate virtual environment\
    \
   myenv/Scripts/activate
 
-5. Install fine library with from GitHub with all the dependencies\
+3. Install fine library with from GitHub with all the dependencies\
    \
   pip install git+https://github.com/lovinduw/mga_in_fine.git#egg=fine
+
