@@ -50,6 +50,9 @@ dependencies = [
 
 requires-python = ">=3.10,<3.13"
 
+[tool.setuptools.packages]
+find = { include = ["fine", "fine.*"] }
+
 [project.optional-dependencies]
 develop = [
     "sphinx<8",
