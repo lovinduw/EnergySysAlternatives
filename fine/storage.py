@@ -1761,6 +1761,13 @@ class StorageModel(ComponentModel):
             + offsetUpOp
             + offsetDownOp
         )
+    def getMGAObjectiveFunctionContribution(self, esM, pyM,iteration):######################################
+
+        vars = ["chargeOp","dischargeOp"]
+        # compDict, abbrvName = self.componentsDict, self.abbrvName
+        # opVar= (getattr(pyM, "op_" + abbrvName))
+        mgaContribution = sum(self.mgaOperation(pyM, esM, iteration, var) for var in vars)
+        return mgaContribution
 
     ####################################################################################################################
     #                                  Return optimal values of the component class                                    #

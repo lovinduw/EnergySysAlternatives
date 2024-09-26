@@ -9,8 +9,6 @@ class Source(Component):
     """
     A Source component can transfer a commodity over the energy system boundary into the system.
     """
-    # A variable named instances is created to store all instances of the Source class
-    instances = []
     def __init__(
         self,
         esM,
@@ -58,9 +56,6 @@ class Source(Component):
         stockCommissioning=None,
         floorTechnicalLifetime=True,
     ):
-        # Since class Sink is inherited from class Source, we need to add only the instances of Source class
-        if type(self) is Source:
-            Source.instances.append(self)
 
         """
         Constructor for creating an Source class instance.
@@ -462,12 +457,7 @@ class Source(Component):
             self.hasCapacityVariable,
             operationTimeSeries,
         )
-
-    # class method is added to access the instances variable
-    @classmethod
-    def get_instances(cls):
-        return cls.instances
-    
+   
     def setTimeSeriesData(self, hasTSA):
         """
         Function for setting the maximum operation rate, fixed operation rate and cost or revenue time series depending
@@ -607,7 +597,8 @@ class Sink(Source):
     """
     A Sink component can transfer a commodity over the energy system boundary out of the system.
     """
-
+    # A variable named instances is created to store all instances of the Sink class
+    instances = []
     def __init__(
         self,
         esM,
@@ -653,6 +644,10 @@ class Sink(Source):
         stockCommissioning=None,
         floorTechnicalLifetime=True,
     ):
+        # Since class Sink is inherited from class Source, we need to add only the instances of Source class
+        if type(self) is Sink:
+            Sink.instances.append(self)
+        
         """
         Constructor for creating a Sink class instance.
 
@@ -707,10 +702,11 @@ class Sink(Source):
         )
 
         self.sign = -1
-
+        
+    # class method is added to access the instances variable
     @classmethod
     def get_instances(cls):
-        pass
+        return cls.instances
 
 class SourceSinkModel(ComponentModel):
     """
@@ -1125,7 +1121,7 @@ class SourceSinkModel(ComponentModel):
             - (commodRevenue + commodRevenueTimeSeries)
         )
     
-    def getMGAObjectiveFunctionContribution(self, esM, pyM,iteration):
+    def getMGAObjectiveFunctionContribution(self, esM, pyM,iteration):#####################################
         # compDict, abbrvName = self.componentsDict, self.abbrvName
         # opVar= (getattr(pyM, "op_" + abbrvName))
         mgaContribution = self.mgaOperation(pyM, esM, iteration, "op")
