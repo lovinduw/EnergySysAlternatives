@@ -937,6 +937,7 @@ class ComponentModel(metaclass=ABCMeta):
         compDict, abbrvName = self.componentsDict, self.abbrvName
 
         def declareDesignVarSet(pyM):
+            
             return (
                 (loc, compName, ip)
                 for compName, comp in compDict.items()
@@ -2839,32 +2840,36 @@ class ComponentModel(metaclass=ABCMeta):
         isOperationCommisYearDepending=False,
     ):
         """
-        Declare the objective function by obtaining the opertaion rate variables of SourceSinkModel. Currently, the  objective function is the sum of the operation variables 
-        of the SourceSinkModel multiplied by the Beta value.
+        Declare the objective function by obtaining the opertaion rate variables abd capacity variables of the components. The  objective function is the sum of the operation and capacity variables 
+        of the componenets multiplied by the Beta value.
 
          .. math::
-                    \\{min/max}\:  {op}^{comp,opType}_{loc,ip,p,t} * {\beta}_{loc,comp,iteration}
+                    \\{min/max}\:  {\beta}_{loc,comp,iteration} * ({op}^{comp,opType}_{loc,ip,p,t} + {cap}^{comp}_{loc})
 
         """
-        # additions for perfect foresight
-        # operationRate is the same for all ip
+
         abbrvName = self.abbrvName
         opVar = getattr(pyM, opVarName + "_" + abbrvName)
-        varSet = getattr(pyM, "operationVarSet_" + abbrvName)
+        capVar = getattr(pyM, "cap_" + abbrvName)
+        opVarSet = getattr(pyM, "operationVarSet_" + abbrvName)
+        capVarSet = getattr(pyM, "designDimensionVarSet_" + abbrvName) 
 
         if isOperationCommisYearDepending:
 
-            return (
-                sum(opVar[loc, compName, commis, ip, p, t] * esM.beta[iteration][loc][compName]
-                for loc,compName,commis,ip in varSet for p,t in pyM.intraYearTimeSet)
+            opsum = sum(opVar[loc, compName, commis, ip, p, t]  * esM.beta[loc][iteration][compName]
+                for loc,compName,commis,ip in opVarSet for p,t in pyM.intraYearTimeSet
             )
 
         else:
 
-            return (
-                sum(opVar[loc, compName, ip, p, t] * esM.beta[iteration][loc][compName]
-                for loc,compName,ip in varSet for p,t in pyM.intraYearTimeSet) 
+            opsum = sum(opVar[loc, compName, ip, p, t] * esM.beta[loc][iteration][compName]
+                for loc,compName,ip in opVarSet for p,t in pyM.intraYearTimeSet 
             )
+            
+        capsum = sum(capVar[loc, compName, ip]  * esM.beta[loc][iteration][compName]
+                         for loc, compName, ip in capVarSet)
+        
+        return (opsum + capsum)
 
     ####################################################################################################################
     #  Functions for declaring component contributions to basic energy system constraints and the objective function   #

@@ -8,7 +8,8 @@ class Transmission(Component):
     """
     A Transmission component can transmit a commodity between locations of the energy system.
     """
-
+    # A variable named instances is created to store all instances of the Transmission class
+    instances = []
     def __init__(
         self,
         esM,
@@ -49,6 +50,8 @@ class Transmission(Component):
         pathwayBalanceLimitID=None,
         stockCommissioning=None,
     ):
+        
+        Transmission.instances.append(self)
         """
         Constructor for creating an Transmission class instance.
         The Transmission component specific input arguments are described below. The general component
@@ -447,6 +450,11 @@ class Transmission(Component):
         # set processed location eligiblity # TODO implement check and set
         self.processedLocationalEligibility = self.locationalEligibility
 
+    # class method is added to access the instances variable
+    @classmethod
+    def get_instances(cls):
+        return cls.instances
+    
     def setTimeSeriesData(self, hasTSA):
         """
         Function for setting the maximum operation rate and fixed operation rate depending on whether a time series
@@ -948,6 +956,12 @@ class TransmissionModel(ComponentModel):
         )
 
         return opexOp + capexCap + capexDec + opexCap + opexDec
+    
+    def getMGAObjectiveFunctionContribution(self, esM, pyM,iteration):#####################################
+        # compDict, abbrvName = self.componentsDict, self.abbrvName
+        # opVar= (getattr(pyM, "op_" + abbrvName))
+        mgaContribution = self.mgaOperation(pyM, esM, iteration, "op")
+        return mgaContribution
 
     def setOptimalValues(self, esM, pyM):
         """

@@ -1174,6 +1174,12 @@ class ConversionModel(ComponentModel):
         )
 
         return super().getObjectiveFunctionContribution(esM, pyM) + opexOp
+    
+    def getMGAObjectiveFunctionContribution(self, esM, pyM,iteration):#####################################
+        # compDict, abbrvName = self.componentsDict, self.abbrvName
+        # opVar= (getattr(pyM, "op_" + abbrvName))
+        mgaContribution = self.mgaOperation(pyM, esM, iteration, "op")
+        return mgaContribution
 
     ####################################################################################################################
     #                                  Return optimal values of the component class                                    #
