@@ -1,6 +1,6 @@
 # mga_in_fine
 ETHOS.FINE with MGA
-This repositiry includes ETHOS.FINE framework with the option to do a modeling to generate alternatives (MGA) analysis based on the objective function value of the optimized energy system problem. Currently, the variables in the MGA optimization process are the operation rate variables of all Source componenets (i.e. wind (on shore), PV, natural gas). MGA provides alternative operation rate values for the Source component during each time step subjected to total cost of the energy system is not more than a pre defined amount of the original optimization problem.
+This repositiry includes ETHOS.FINE framework with the option to do a modeling to generate alternatives (MGA) analysis based on the objective function value of the optimized energy system problem. Currently, the variables in the MGA optimization process are the operation rate variables and capacity variables of all componenets (i.e. wind (on shore), PV, AC cables, Battery storage). MGA provides alternative operation rate values for the component during each time step subjected to total cost of the energy system is not more than a pre defined amount of the original optimization problem. For storage components, charge rate and discharge rates of the storage component is considered as the operation rate. For the capacity variables, only the component that have a capacity value is considered for the optimization. For e.g. a wind turbine has a capacity given in GW_electric
 
 # Steps to follow to install fine with MGA optimization as a library
 
