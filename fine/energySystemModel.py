@@ -2479,6 +2479,7 @@ class EnergySystemModel:
 
         # Store the build time of the optimize function call in the EnergySystemModel instance
         self.solverSpecs["buildtime"] = time.time() - timeStart   
+        
     def mga_optimize(
             self,
             declaresOptimizationProblem=True,
@@ -2492,7 +2493,8 @@ class EnergySystemModel:
             relevanceThreshold=None,
             slack=0.1,
             iterations = 10,
-            random_seed = False
+            random_seed = False,
+            operationRateinOutput = False
     ):
         """
         Optimize the specified energy system for which a pyomo ConcreteModel instance is built or called upon.
@@ -2581,6 +2583,7 @@ class EnergySystemModel:
         |br| @author: FINE Developer Team (FZJ IEK-3)
         """
 
+        self.operationRateinOutput = operationRateinOutput
         self.iterations = iterations
         self.slack = slack
         # components = [key for key in self.componentModelingDict["SourceSinkModel"].componentsDict]
@@ -2912,6 +2915,9 @@ class EnergySystemModel:
         if not os.path.exists(outdir):
             os.mkdir(outdir)
 
+        if not self.operationRateinOutput:   # if optimalValueParameters is True, we do not require operation rate variables in the output anymore.
+            self.optimalValueParameters = ["cap_"]
+
         for ip in self.investmentPeriods:    # Currently a single investment period is consdiered.           
             for key, mdl in self.componentModelingDict.items():
                 _t = time.time()
@@ -2968,4 +2974,39 @@ class EnergySystemModel:
                                 )
                                 self.outputData[f'{parameter}_{k}'].to_excel(writer, sheet_name=f'{parameter}_{k}')
                 utils.output("\t\t (%.4f)" % (time.time() - _t) + " sec\n", self.verbose, 0)
-        utils.output("\n\t MGA optimization completed", self.verbose, 0)             
+        utils.output("\n\t MGA optimization completed", self.verbose, 0) 
+
+    def post_process(self):
+
+        print("\nClutsering output to single sheets")
+        if not self.operationRateinOutput:
+            # self.iterations = 11
+            outdir = "./OutputData"
+            for key, mdl in self.componentModelingDict.items():
+                if key!= "TransmissionModel":
+                    print(f"\tfor {key}....")
+                    _t = time.time()
+                    file_name = f"{key}.xlsx"
+                    new_file_name = f"{key}_clustered.xlsx"
+                    inputFile = os.path.join(outdir, file_name)
+                    outputFile = os.path.join(outdir, new_file_name)
+                    data = pd.read_excel( inputFile, sheet_name="cap__0",index_col=0)
+                    column_list = list(self.locations)
+                    index_list = data.index  
+                    column_list.sort()
+                    multi_index = pd.MultiIndex.from_product([index_list,column_list])  
+                    row_index = [iteration for iteration in range(self.iterations)] 
+                    df = pd.DataFrame(index=row_index, columns=multi_index)
+
+                    for item in index_list:
+                        for location in column_list:
+                            items = []
+                            for iteration in range(self.iterations):
+                                input_data = pd.read_excel( inputFile, sheet_name=f"cap__{iteration}",index_col=0)
+                                items.append(input_data.loc[item][location])
+                            df.loc[:, (item,location)] = items
+                    df.to_excel(outputFile)
+                    utils.output("\t\t (%.4f)" % (time.time() - _t) + " sec\n", self.verbose, 0)
+        
+        else:
+            print("Selected operation can be provided only for capacity variables. Run the mgaOptimize method as operationRateinOutput as false")
