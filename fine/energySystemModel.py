@@ -4,6 +4,7 @@ import time
 import warnings
 import importlib.util
 import random
+import sys
 
 import gurobi_logtools as glt
 import pandas as pd
@@ -2494,7 +2495,8 @@ class EnergySystemModel:
             slack=0.1,
             iterations = 10,
             random_seed = False,
-            operationRateinOutput = False
+            operationRateinOutput = False,
+            writeSolutionsasExcels = False
     ):
         """
         Optimize the specified energy system for which a pyomo ConcreteModel instance is built or called upon.
@@ -2582,431 +2584,444 @@ class EnergySystemModel:
         Last edited: November 16, 2023
         |br| @author: FINE Developer Team (FZJ IEK-3)
         """
-
-        self.operationRateinOutput = operationRateinOutput
+                
         self.iterations = iterations
         self.slack = slack
-        # components = [key for key in self.componentModelingDict["SourceSinkModel"].componentsDict]
-        # all_instances = Source.get_instances()
-        # source_components = [instance.name for instance in all_instances]
-        components = []
-        sink_instances = Sink.get_instances()
-        sink_components = [instance.name for instance in sink_instances] 
-        transmission_instances = Transmission.get_instances()
-        transmission_components = [instance.name for instance in transmission_instances]
-
-        for item in self.componentModelingDict.values():
-            for key in item.componentsDict.keys():
-                components.append(key)
-
-        if random_seed:
-            random.seed(10)
-
-        """Beta is a random value between 0 and 1 and it changes with location, time and iteration. This Beta value
-        is used to build the objective function of the MGA optimization.
-        """
-        transmission_locations = []
-        for loc1 in self.locations:
-            for loc2 in self.locations:
-                transmission_locations.append(loc1 + "_" + loc2)
-        
-        self.beta = {location: 
-                {iteration+1: 
-                {component: random.random() if component not in sink_components and component not in transmission_components else 1 
-                    if component in sink_components else None for component in components if component not in transmission_components
-                }  
-                for iteration in range(self.iterations)
-                } 
-                for location in self.locations
-                }
-        
-        new_data = {location: 
-                {iteration+1: 
-                {component: random.random() for component in transmission_components
-                }  
-                for iteration in range(self.iterations)
-                } 
-                for location in transmission_locations
-                }
-
-        self.beta.update(new_data)
+        self.operationRateinOutput = operationRateinOutput
+        self.writeSolutionsasExcels = writeSolutionsasExcels
 
         self.optimalValues(0)
-        
-        if not timeSeriesAggregation:
-            self.segmentation = False
 
-        _t = time.time()
-
-        """ 
-        MGA optimization is an iterative process. It starts with the first iteration and ends with the last iteration (self.iterations). Each iteration has a minimization and a maximization of the optimization problem.
-        therefore, each iteration provides 2 solutions and 2*(self.iterations) times final solutions. The optimization problem is defined in the declareMGAOptimizationProblem function."
-        """
-        iteration =1
-        while iteration <= self.iterations:
-            for sense in ["minimize","maximize"]:    
-
-                if declaresOptimizationProblem:
-                    self.declareMGAOptimizationProblem(
-                        iteration,
-                        sense,
-                        timeSeriesAggregation=timeSeriesAggregation,
-                        relevanceThreshold=relevanceThreshold,
-                        )
-                else:
-                    if self.pyM is None:
-                        raise TypeError(
-                            "The optimization problem is not declared yet. Set the argument declaresOptimization"
-                            " problem to True or call the declareOptimizationProblem function first."
-                        )
-
-                # if includePerformanceSummary:
-                #     """
-                #     this will store a performance summary (in Dataframe format) as attribute ('self.performanceSummary') in the esM instance.
-                #     """
-                #     ## make sure logging is enabled for gurobi, otherwise gurobi values cannot be included in the performance summary
-                #     if logFileName == "":
-                #         warnings.warn(
-                #             "A logFile Name has to be specified in order to extract Gurobi values! Gurobi values will not be listed in performance summary!"
-                #         )
-                #     # If time series aggregation is enabled, the TSA instance needs to be saved in order to be included in the performance summary
-                #     if self.isTimeSeriesDataClustered and (self.tsaInstance is None):
-                #         warnings.warn(
-                #             "storeTSAinstance has to be set to true to extract TSA Parameters! TSA parameters will not be listed in performance summary!"
-                #         )
-
-                #     # get RAM usage of process before and after optimization
-                #     process = psutil.Process(os.getpid())
-                #     rss_by_psutil_start = process.memory_info().rss / (
-                #         1024 * 1024 * 1024
-                #     )  # from Bytes to GB
-                #     # start optimization
-
-                # Get starting time of the optimization to, later on, obtain the total run time of the optimize function call
-                timeStart = time.time()
-
-                # Check correctness of inputs
-                utils.checkOptimizeInput(
-                    timeSeriesAggregation,
-                    self.isTimeSeriesDataClustered,
-                    logFileName,
-                    threads,
-                    solver,
-                    timeLimit,
-                    optimizationSpecs,
-                    warmstart,
-                )
-
-                # Store keyword arguments in the EnergySystemModel instance
-                self.solverSpecs["logFileName"], self.solverSpecs["threads"] = (
-                    logFileName,
-                    threads,
-                )
-                self.solverSpecs["solver"], self.solverSpecs["timeLimit"] = solver, timeLimit
-                self.solverSpecs["optimizationSpecs"], self.solverSpecs["hasTSA"] = (
-                    optimizationSpecs,
-                    timeSeriesAggregation,
-                )
-
-                # Check which solvers are available and choose default solver if no solver is specified explicitely
-                # Order of possible solvers in solverList defines the priority of chosen default solver.
-                solverList = ["gurobi", "glpk", "cbc"]
-
-                if solver != "None":
-                    try:
-                        opt.SolverFactory(solver).available()
-                    except Exception:
-                        solver = "None"
-
-                if solver == "None":
-                    for nSolver in solverList:
-                        if solver == "None":
-                            try:
-                                if opt.SolverFactory(nSolver).available():
-                                    solver = nSolver
-                                    utils.output(
-                                        "Either solver not selected or specified solver not available."
-                                        + str(nSolver)
-                                        + " is set as solver.",
-                                        self.verbose,
-                                        0,
-                                    )
-                            except Exception:
-                                pass
-
-                if solver == "None":
-                    raise TypeError(
-                        "At least one solver must be installed."
-                        " Have a look at the FINE documentation to see how to install possible solvers."
-                        " https://vsa-fine.readthedocs.io/en/latest/"
-                    )
-
-                ################################################################################################################
-                #                                  Solve the specified optimization problem                                    #
-                ################################################################################################################
-
-                # Set which solver should solve the specified optimization problem
-                if solver == "gurobi" and importlib.util.find_spec('gurobipy'):
-                    # Use the direct gurobi solver that uses the Python API.
-                    optimizer = opt.SolverFactory(solver, solver_io="python")
-                else:
-                    optimizer = opt.SolverFactory(solver)
-
-                # Set, if specified, the time limit
-                if self.solverSpecs["timeLimit"] is not None and solver == "gurobi":
-                    optimizer.options["timelimit"] = timeLimit
-
-                # Set the specified solver options
-                if "LogToConsole=" not in optimizationSpecs and solver == "gurobi":
-                    if self.verbose == 2:
-                        optimizationSpecs += " LogToConsole=0"
-
-                # Solve optimization problem. The optimization solve time is stored and the solver information is printed.
-                if solver == "gurobi":
-                    optimizer.set_options(
-                        "Threads="
-                        + str(threads)
-                        + " logfile="
-                        + logFileName
-                        + " "
-                        + optimizationSpecs
-                    )
-                    solver_info = optimizer.solve(
-                        self.pyM,
-                        warmstart=warmstart,
-                        tee=True,
-                    )
-                elif solver == "glpk":
-                    optimizer.set_options(optimizationSpecs)
-                    solver_info = optimizer.solve(self.pyM, tee=True)
-                else:
-                    solver_info = optimizer.solve(self.pyM, tee=True)
-                self.solverSpecs["solvetime"] = time.time() - timeStart
-                utils.output(solver_info.solver(), self.verbose, 0), utils.output(
-                    solver_info.problem(), self.verbose, 0
-                )
-                utils.output(
-                    "Solve time: " + str(self.solverSpecs["solvetime"]) + " sec.",
-                    self.verbose,
-                    0,
-                )
-
-                # Post-process the optimization output by differentiating between different solver statuses and termination
-                # conditions. First, check if the status and termination_condition of the optimization are acceptable.
-                # If not, no output is generated.
-                # TODO check if this is still compatible with the latest pyomo version
-                status, termCondition = (
-                    solver_info.solver.status,
-                    solver_info.solver.termination_condition,
-                )
-                self.solverSpecs["status"] = str(status)
-                self.solverSpecs["terminationCondition"] = str(termCondition)
-                if (
-                    status == opt.SolverStatus.error
-                    or status == opt.SolverStatus.aborted
-                    or status == opt.SolverStatus.unknown
-                ):
-                    utils.output(
-                        "Solver status:  "
-                        + str(status)
-                        + ", termination condition:  "
-                        + str(termCondition)
-                        + ". No output is generated.",
-                        self.verbose,
-                        0,
-                    )
-                elif (
-                    solver_info.solver.termination_condition
-                    == opt.TerminationCondition.infeasibleOrUnbounded
-                    or solver_info.solver.termination_condition
-                    == opt.TerminationCondition.infeasible
-                    or solver_info.solver.termination_condition
-                    == opt.TerminationCondition.unbounded
-                ):
-                    utils.output(
-                        "Optimization problem is "
-                        + str(solver_info.solver.termination_condition)
-                        + ". No output is generated.",
-                        self.verbose,
-                        0,
-                    )
-                else:
-                    # If the solver status is not okay (hence either has a warning, an error, was aborted or has an unknown
-                    # status), show a warning message.
-                    if (
-                        not solver_info.solver.termination_condition
-                        == opt.TerminationCondition.optimal
-                        and self.verbose < 2
-                    ):
-                        warnings.warn("Output is generated for a non-optimal solution.")
-                    # utils.output("\nProcessing optimization output...", self.verbose, 0)
-                    # Declare component specific sets, variables and constraints
-                    # w = str(len(max(self.componentModelingDict.keys())) + 6)
-
-                    """
-                    MGA solutions consist of the operation rate variables and capacity variables of the components. MGA solutions are stored in self.solutions.
-                    """
-
-                    if sense == "minimize":
-                        self.optimalValues(iteration)
-                        # self.solutions[iteration] = getattr(self.pyM, "op_" + "srcSnk").get_values() 
-                    else:
-                        self.optimalValues(self.iterations + iteration)
-                        # self.solutions[self.iterations + iteration] = getattr(self.pyM, "op_" + "srcSnk").get_values() 
-                print(self.pyM.optimalCostConstraint.display())###################################
-            iteration +=1
-        # print(self.solutions)
-        # self.get_solutions()
-        utils.output("\n\t\tMGA optimization completed after %.4f" % (time.time() - _t) + " sec\n", self.verbose, 0)
-        # self.utils.output("\t\t(%.4f" % (time.time() - _t) + " sec)\n", self.verbose, 0)
-            
-# ############################################################################################################
-# # #                                      Identify maximally different solutions                                        #
-# # ################################################################################################################
-        """
-        MGA optimization provides 2*(self.iterations) times different solutions. From these solutions, solutions which are maximally different to the optimal solutions should be identified.
-        For this, largest squared Euclidian distance between the solutions are calculated.   
-        """
-        def supremum(i):
-            m = 10**4
-            x_sum = 0
-
-            for iteration in range(len(self.set_solutions)):
-                sel_sum = 0
-
-                sel_sum += sum((self.solutions[i][key][parameter][item]-self.set_solutions[iteration][key][parameter][item])**2 for key in self.solutions[i] 
-                                for parameter in self.solutions[i][key] for item in self.solutions[i][key][parameter]) 
-                if sel_sum == 0:
-                    x_sum += m
-                else:
-                    x_sum += 1/sel_sum
-
-            return 1/x_sum
-
-        # def get_solutions(self):
-
-        self.set_solutions = {}
-        self.set_solutions[0] = self.solutions[0]
-        # print(self.set_solutions[0])
-
-        utils.output("\nIdentifying maximally different solutions....\n", self.verbose, 0)
-        for k in range(self.iterations):
-            previous_max = 0
-            for i in range(2*self.iterations):
-                get_max = supremum(i)
-                if get_max > previous_max:
-                    highest_distance = i
-                    previous_max = get_max
-            # if highest_distance not in used_solutions:
-            utils.output (f"Maximally different solution {k+1} identified... Solution {highest_distance}", self.verbose, 0)
-            self.set_solutions[k+1] = self.solutions[highest_distance]  
-            # used_solutions.append(highest_distance)   
-
-        # ################################################################################################################
-        # #                                      Post-process optimization output                                        #
-        ###########################################################################################################
-
-        # iterate over investment periods, to get yearly results
-        # for key, mdl in self.componentModelingDict.items():
-
-        utils.output("\nWriting optimization output to Excel files\n", self.verbose, 0)
-
-        outdir = "./OutputData"
-        if not os.path.exists(outdir):
-            os.mkdir(outdir)
-
-        if not self.operationRateinOutput:   # if optimalValueParameters is True, we do not require operation rate variables in the output anymore.
-            self.optimalValueParameters = ["cap_"]
-
-        for ip in self.investmentPeriods:    # Currently a single investment period is consdiered.           
-            for key, mdl in self.componentModelingDict.items():
-                _t = time.time()
-                utils.output(f"\tWriting {key} output....", self.verbose, 0)
-                self.outputData = {}
-                file_name = f"{key}.xlsx"
-                outputFile = os.path.join(outdir, file_name)
-                with pd.ExcelWriter(outputFile) as writer: 
-                    for parameter in self.optimalValueParameters: 
-                        for k in range((self.iterations+1)):   
-                            if parameter == "op_":
-                                if key != "TransmissionModel" and key != "StorageModel":
-                                    self.outputData[f'{parameter}_{k}'] = utils.formatOptimizationOutput(
-                                        self.set_solutions[k][key][parameter],
-                                        "operationVariables",
-                                        "1dim",
-                                        ip,
-                                        self.periodsOrder[ip],
-                                        esM=self,
-                                    )
-                                    self.outputData[f'{parameter}_{k}'].to_excel(writer, sheet_name=f'{parameter}_{k}')
-
-                                elif key == "StorageModel":  
-                                    for action in self.storageParameters:
-                                        self.outputData[f'{action}_{k}'] = utils.formatOptimizationOutput(
-                                        self.set_solutions[k][key][action],
-                                        "operationVariables",
-                                        "1dim",
-                                        ip,
-                                        self.periodsOrder[ip],
-                                        esM=self,
-                                    )
-                                        self.outputData[f'{action}_{k}'].to_excel(writer, sheet_name=f'{action}_{k}')
-                                        
-                                else:
-                                    self.outputData[f'{parameter}_{k}'] = utils.formatOptimizationOutput(
-                                        self.set_solutions[k][key][parameter],
-                                        "operationVariables",
-                                        "2dim",
-                                        ip,
-                                        self.periodsOrder[ip],
-                                        compDict=mdl.componentsDict,
-                                        esM=self,
-                                    )
-                                    self.outputData[f'{parameter}_{k}'].to_excel(writer, sheet_name=f'{parameter}_{k}')
-
-                            else:
-                                self.outputData[f'{parameter}_{k}'] = utils.formatOptimizationOutput(
-                                    self.set_solutions[k][key][parameter],
-                                    "designVariables",
-                                    mdl.dimension,
-                                    ip,
-                                    compDict=mdl.componentsDict,
-                                )
-                                self.outputData[f'{parameter}_{k}'].to_excel(writer, sheet_name=f'{parameter}_{k}')
-                utils.output("\t\t (%.4f)" % (time.time() - _t) + " sec\n", self.verbose, 0)
-        utils.output("\n\t MGA optimization completed", self.verbose, 0) 
-
-    def post_process(self):
-
-        print("\nClutsering output to single sheets")
-        if not self.operationRateinOutput:
-            # self.iterations = 11
-            outdir = "./OutputData"
-            for key, mdl in self.componentModelingDict.items():
-                if key!= "TransmissionModel":
-                    print(f"\tfor {key}....")
-                    _t = time.time()
-                    file_name = f"{key}.xlsx"
-                    new_file_name = f"{key}_clustered.xlsx"
-                    inputFile = os.path.join(outdir, file_name)
-                    outputFile = os.path.join(outdir, new_file_name)
-                    data = pd.read_excel( inputFile, sheet_name="cap__0",index_col=0)
-                    column_list = list(self.locations)
-                    index_list = data.index  
-                    column_list.sort()
-                    multi_index = pd.MultiIndex.from_product([index_list,column_list])  
-                    row_index = [iteration for iteration in range(self.iterations)] 
-                    df = pd.DataFrame(index=row_index, columns=multi_index)
-
-                    for item in index_list:
-                        for location in column_list:
-                            items = []
-                            for iteration in range(self.iterations):
-                                input_data = pd.read_excel( inputFile, sheet_name=f"cap__{iteration}",index_col=0)
-                                items.append(input_data.loc[item][location])
-                            df.loc[:, (item,location)] = items
-                    df.to_excel(outputFile)
-                    utils.output("\t\t (%.4f)" % (time.time() - _t) + " sec\n", self.verbose, 0)
+        if self.solutions[0] is None:
+            raise TypeError(
+            "The optimization problem for optimal solution doesn't have an optimal solution"
+            "Cannot perofrm a MGA optimization if the optimization problem doesn't have an optimal solution."
+            )
         
         else:
-            print("Selected operation can be provided only for capacity variables. Run the mgaOptimize method as operationRateinOutput as false")
+
+
+            # components = [key for key in self.componentModelingDict["SourceSinkModel"].componentsDict]
+            # all_instances = Source.get_instances()
+            # source_components = [instance.name for instance in all_instances]
+            components = []
+            sink_instances = Sink.get_instances()
+            sink_components = [instance.name for instance in sink_instances] 
+            transmission_instances = Transmission.get_instances()
+            transmission_components = [instance.name for instance in transmission_instances]
+
+            for item in self.componentModelingDict.values():
+                for key in item.componentsDict.keys():
+                    components.append(key)
+
+            if random_seed:
+                random.seed(10)
+
+            """Beta is a random value between 0 and 1 and it changes with location, time and iteration. This Beta value
+            is used to build the objective function of the MGA optimization.
+            """
+            transmission_locations = []
+            for loc1 in self.locations:
+                for loc2 in self.locations:
+                    transmission_locations.append(loc1 + "_" + loc2)
+            
+            self.beta = {location: 
+                    {iteration+1: 
+                    {component: random.random() if component not in sink_components and component not in transmission_components else 1 
+                        if component in sink_components else None for component in components if component not in transmission_components
+                    }  
+                    for iteration in range(self.iterations)
+                    } 
+                    for location in self.locations
+                    }
+            
+            new_data = {location: 
+                    {iteration+1: 
+                    {component: random.random() for component in transmission_components
+                    }  
+                    for iteration in range(self.iterations)
+                    } 
+                    for location in transmission_locations
+                    }
+
+            self.beta.update(new_data)
+
+            # self.optimalValues(0)
+            
+            if not timeSeriesAggregation:
+                self.segmentation = False
+
+            _t = time.time()
+
+            """ 
+            MGA optimization is an iterative process. It starts with the first iteration and ends with the last iteration (self.iterations). Each iteration has a minimization and a maximization of the optimization problem.
+            therefore, each iteration provides 2 solutions and 2*(self.iterations) times final solutions. The optimization problem is defined in the declareMGAOptimizationProblem function."
+            """
+            iteration =1
+            while iteration <= self.iterations:
+                for sense in ["minimize","maximize"]:    
+
+                    if declaresOptimizationProblem:
+                        self.declareMGAOptimizationProblem(
+                            iteration,
+                            sense,
+                            timeSeriesAggregation=timeSeriesAggregation,
+                            relevanceThreshold=relevanceThreshold,
+                            )
+                    else:
+                        if self.pyM is None:
+                            raise TypeError(
+                                "The optimization problem is not declared yet. Set the argument declaresOptimization"
+                                " problem to True or call the declareOptimizationProblem function first."
+                            )
+
+                    # if includePerformanceSummary:
+                    #     """
+                    #     this will store a performance summary (in Dataframe format) as attribute ('self.performanceSummary') in the esM instance.
+                    #     """
+                    #     ## make sure logging is enabled for gurobi, otherwise gurobi values cannot be included in the performance summary
+                    #     if logFileName == "":
+                    #         warnings.warn(
+                    #             "A logFile Name has to be specified in order to extract Gurobi values! Gurobi values will not be listed in performance summary!"
+                    #         )
+                    #     # If time series aggregation is enabled, the TSA instance needs to be saved in order to be included in the performance summary
+                    #     if self.isTimeSeriesDataClustered and (self.tsaInstance is None):
+                    #         warnings.warn(
+                    #             "storeTSAinstance has to be set to true to extract TSA Parameters! TSA parameters will not be listed in performance summary!"
+                    #         )
+
+                    #     # get RAM usage of process before and after optimization
+                    #     process = psutil.Process(os.getpid())
+                    #     rss_by_psutil_start = process.memory_info().rss / (
+                    #         1024 * 1024 * 1024
+                    #     )  # from Bytes to GB
+                    #     # start optimization
+
+                    # Get starting time of the optimization to, later on, obtain the total run time of the optimize function call
+                    timeStart = time.time()
+
+                    # Check correctness of inputs
+                    utils.checkOptimizeInput(
+                        timeSeriesAggregation,
+                        self.isTimeSeriesDataClustered,
+                        logFileName,
+                        threads,
+                        solver,
+                        timeLimit,
+                        optimizationSpecs,
+                        warmstart,
+                    )
+
+                    # Store keyword arguments in the EnergySystemModel instance
+                    self.solverSpecs["logFileName"], self.solverSpecs["threads"] = (
+                        logFileName,
+                        threads,
+                    )
+                    self.solverSpecs["solver"], self.solverSpecs["timeLimit"] = solver, timeLimit
+                    self.solverSpecs["optimizationSpecs"], self.solverSpecs["hasTSA"] = (
+                        optimizationSpecs,
+                        timeSeriesAggregation,
+                    )
+
+                    # Check which solvers are available and choose default solver if no solver is specified explicitely
+                    # Order of possible solvers in solverList defines the priority of chosen default solver.
+                    solverList = ["gurobi", "glpk", "cbc"]
+
+                    if solver != "None":
+                        try:
+                            opt.SolverFactory(solver).available()
+                        except Exception:
+                            solver = "None"
+
+                    if solver == "None":
+                        for nSolver in solverList:
+                            if solver == "None":
+                                try:
+                                    if opt.SolverFactory(nSolver).available():
+                                        solver = nSolver
+                                        utils.output(
+                                            "Either solver not selected or specified solver not available."
+                                            + str(nSolver)
+                                            + " is set as solver.",
+                                            self.verbose,
+                                            0,
+                                        )
+                                except Exception:
+                                    pass
+
+                    if solver == "None":
+                        raise TypeError(
+                            "At least one solver must be installed."
+                            " Have a look at the FINE documentation to see how to install possible solvers."
+                            " https://vsa-fine.readthedocs.io/en/latest/"
+                        )
+
+                    ################################################################################################################
+                    #                                  Solve the specified optimization problem                                    #
+                    ################################################################################################################
+
+                    # Set which solver should solve the specified optimization problem
+                    if solver == "gurobi" and importlib.util.find_spec('gurobipy'):
+                        # Use the direct gurobi solver that uses the Python API.
+                        optimizer = opt.SolverFactory(solver, solver_io="python")
+                    else:
+                        optimizer = opt.SolverFactory(solver)
+
+                    # Set, if specified, the time limit
+                    if self.solverSpecs["timeLimit"] is not None and solver == "gurobi":
+                        optimizer.options["timelimit"] = timeLimit
+
+                    # Set the specified solver options
+                    if "LogToConsole=" not in optimizationSpecs and solver == "gurobi":
+                        if self.verbose == 2:
+                            optimizationSpecs += " LogToConsole=0"
+
+                    # Solve optimization problem. The optimization solve time is stored and the solver information is printed.
+                    if solver == "gurobi":
+                        optimizer.set_options(
+                            "Threads="
+                            + str(threads)
+                            + " logfile="
+                            + logFileName
+                            + " "
+                            + optimizationSpecs
+                        )
+                        solver_info = optimizer.solve(
+                            self.pyM,
+                            warmstart=warmstart,
+                            tee=True,
+                        )
+                    elif solver == "glpk":
+                        optimizer.set_options(optimizationSpecs)
+                        solver_info = optimizer.solve(self.pyM, tee=True)
+                    else:
+                        solver_info = optimizer.solve(self.pyM, tee=True)
+                    self.solverSpecs["solvetime"] = time.time() - timeStart
+                    utils.output(solver_info.solver(), self.verbose, 0), utils.output(
+                        solver_info.problem(), self.verbose, 0
+                    )
+                    utils.output(
+                        "Solve time: " + str(self.solverSpecs["solvetime"]) + " sec.",
+                        self.verbose,
+                        0,
+                    )
+
+                    # Post-process the optimization output by differentiating between different solver statuses and termination
+                    # conditions. First, check if the status and termination_condition of the optimization are acceptable.
+                    # If not, no output is generated.
+                    # TODO check if this is still compatible with the latest pyomo version
+                    status, termCondition = (
+                        solver_info.solver.status,
+                        solver_info.solver.termination_condition,
+                    )
+                    self.solverSpecs["status"] = str(status)
+                    self.solverSpecs["terminationCondition"] = str(termCondition)
+                    if (
+                        status == opt.SolverStatus.error
+                        or status == opt.SolverStatus.aborted
+                        or status == opt.SolverStatus.unknown
+                    ):
+                        utils.output(
+                            "Solver status:  "
+                            + str(status)
+                            + ", termination condition:  "
+                            + str(termCondition)
+                            + ". No output is generated.",
+                            self.verbose,
+                            0,
+                        )
+                    elif (
+                        solver_info.solver.termination_condition
+                        == opt.TerminationCondition.infeasibleOrUnbounded
+                        or solver_info.solver.termination_condition
+                        == opt.TerminationCondition.infeasible
+                        or solver_info.solver.termination_condition
+                        == opt.TerminationCondition.unbounded
+                    ):
+                        utils.output(
+                            "Optimization problem is "
+                            + str(solver_info.solver.termination_condition)
+                            + ". No output is generated.",
+                            self.verbose,
+                            0,
+                        )
+                    else:
+                        # If the solver status is not okay (hence either has a warning, an error, was aborted or has an unknown
+                        # status), show a warning message.
+                        if (
+                            not solver_info.solver.termination_condition
+                            == opt.TerminationCondition.optimal
+                            and self.verbose < 2
+                        ):
+                            warnings.warn("Output is generated for a non-optimal solution.")
+                        # utils.output("\nProcessing optimization output...", self.verbose, 0)
+                        # Declare component specific sets, variables and constraints
+                        # w = str(len(max(self.componentModelingDict.keys())) + 6)
+
+                        """
+                        MGA solutions consist of the operation rate variables and capacity variables of the components. MGA solutions are stored in self.solutions.
+                        """
+
+                        if sense == "minimize":
+                            self.optimalValues(iteration)
+                            # self.solutions[iteration] = getattr(self.pyM, "op_" + "srcSnk").get_values() 
+                        else:
+                            self.optimalValues(self.iterations + iteration)
+                            # self.solutions[self.iterations + iteration] = getattr(self.pyM, "op_" + "srcSnk").get_values() 
+                    print(self.pyM.optimalCostConstraint.display())###################################
+                iteration +=1
+            # print(self.solutions)
+            # self.get_solutions()
+            utils.output("\n\t\tMGA optimization completed after %.4f" % (time.time() - _t) + " sec\n", self.verbose, 0)
+            # self.utils.output("\t\t(%.4f" % (time.time() - _t) + " sec)\n", self.verbose, 0)
+                
+            # ############################################################################################################
+            # # #                                      Identify maximally different solutions                                       
+            # # ################################################################################################################
+            """
+            MGA optimization provides 2*(self.iterations) times different solutions. From these solutions, solutions which are maximally different to the optimal solutions should be identified.
+            For this, largest squared Euclidian distance between the solutions are calculated.   
+            """
+            def supremum(i):
+                m = 10**4
+                x_sum = 0
+
+                for iteration in range(len(self.set_solutions)):
+                    sel_sum = 0
+
+                    sel_sum += sum((self.solutions[i][key][parameter][item]-self.set_solutions[iteration][key][parameter][item])**2 for key in self.solutions[i] 
+                                    for parameter in self.solutions[i][key] for item in self.solutions[i][key][parameter]) 
+                    if sel_sum == 0:
+                        x_sum += m
+                    else:
+                        x_sum += 1/sel_sum
+
+                return 1/x_sum
+
+            # def get_solutions(self):
+
+            self.set_solutions = {}
+            self.set_solutions[0] = self.solutions[0]
+            # print(self.set_solutions[0])
+
+            utils.output("\nIdentifying maximally different solutions....\n", self.verbose, 0)
+            for k in range(self.iterations):
+                previous_max = 0
+                # for i in range(2*self.iterations):
+                for i in range(len(self.solutions)):
+                    get_max = supremum(i)
+                    if get_max > previous_max:
+                        highest_distance = i
+                        previous_max = get_max
+                # if highest_distance not in used_solutions:
+                utils.output (f"Maximally different solution {k+1} identified... Solution {highest_distance}", self.verbose, 0)
+                self.set_solutions[k+1] = self.solutions[highest_distance]  
+                # used_solutions.append(highest_distance)   
+
+            # ################################################################################################################
+            # #                                      Post-process optimization output                                        #
+            ###########################################################################################################
+
+            # iterate over investment periods, to get yearly results
+            # for key, mdl in self.componentModelingDict.items():
+
+            if self.writeSolutionsasExcels:
+                utils.output("\nWriting optimization output to Excel files\n", self.verbose, 0)
+
+                outdir = os.path.join(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "OutputData"))
+                if not os.path.exists(outdir):
+                    os.mkdir(outdir)
+
+                if not self.operationRateinOutput:   # if optimalValueParameters is True, we do not require operation rate variables in the output anymore.
+                    self.optimalValueParameters = ["cap_"]
+
+                for ip in self.investmentPeriods:    # Currently a single investment period is consdiered.           
+                    for key, mdl in self.componentModelingDict.items():
+                        _t = time.time()
+                        utils.output(f"\tWriting {key} output....", self.verbose, 0)
+                        self.outputData = {}
+                        file_name = f"{key}.xlsx"
+                        outputFile = os.path.join(outdir, file_name)
+                        with pd.ExcelWriter(outputFile) as writer: 
+                            for parameter in self.optimalValueParameters: 
+                                for k in range((self.iterations+1)):   
+                                    if parameter == "op_":
+                                        if key != "TransmissionModel" and key != "StorageModel":
+                                            self.outputData[f'{parameter}_{k}'] = utils.formatOptimizationOutput(
+                                                self.set_solutions[k][key][parameter],
+                                                "operationVariables",
+                                                "1dim",
+                                                ip,
+                                                self.periodsOrder[ip],
+                                                esM=self,
+                                            )
+                                            self.outputData[f'{parameter}_{k}'].to_excel(writer, sheet_name=f'{parameter}_{k}')
+
+                                        elif key == "StorageModel":  
+                                            for action in self.storageParameters:
+                                                self.outputData[f'{action}_{k}'] = utils.formatOptimizationOutput(
+                                                self.set_solutions[k][key][action],
+                                                "operationVariables",
+                                                "1dim",
+                                                ip,
+                                                self.periodsOrder[ip],
+                                                esM=self,
+                                            )
+                                                self.outputData[f'{action}_{k}'].to_excel(writer, sheet_name=f'{action}_{k}')
+                                                
+                                        else:
+                                            self.outputData[f'{parameter}_{k}'] = utils.formatOptimizationOutput(
+                                                self.set_solutions[k][key][parameter],
+                                                "operationVariables",
+                                                "2dim",
+                                                ip,
+                                                self.periodsOrder[ip],
+                                                compDict=mdl.componentsDict,
+                                                esM=self,
+                                            )
+                                            self.outputData[f'{parameter}_{k}'].to_excel(writer, sheet_name=f'{parameter}_{k}')
+
+                                    else:
+                                        self.outputData[f'{parameter}_{k}'] = utils.formatOptimizationOutput(
+                                            self.set_solutions[k][key][parameter],
+                                            "designVariables",
+                                            mdl.dimension,
+                                            ip,
+                                            compDict=mdl.componentsDict,
+                                        )
+                                        self.outputData[f'{parameter}_{k}'].to_excel(writer, sheet_name=f'{parameter}_{k}')
+                        utils.output("\t\t (%.4f)" % (time.time() - _t) + " sec\n", self.verbose, 0)
+                               
+                print("\nClutsering output to single sheets")
+                if not self.operationRateinOutput:
+                    for key, mdl in self.componentModelingDict.items():
+                        if key!= "TransmissionModel":
+                            print(f"\tfor {key}....")
+                            _t = time.time()
+                            file_name = f"{key}.xlsx"
+                            new_file_name = f"{key}_clustered.xlsx"
+                            inputFile = os.path.join(outdir, file_name)
+                            outputFile = os.path.join(outdir, new_file_name)
+                            data = pd.read_excel( inputFile, sheet_name="cap__0",index_col=0)
+                            column_list = list(self.locations)
+                            index_list = data.index  
+                            column_list.sort()
+                            multi_index = pd.MultiIndex.from_product([index_list,column_list])  
+                            row_index = [iteration for iteration in range(self.iterations)] 
+                            df = pd.DataFrame(index=row_index, columns=multi_index)
+
+                            for item in index_list:
+                                for location in column_list:
+                                    items = []
+                                    for iteration in range(self.iterations):
+                                        input_data = pd.read_excel( inputFile, sheet_name=f"cap__{iteration}",index_col=0)
+                                        items.append(input_data.loc[item][location])
+                                    df.loc[:, (item,location)] = items
+                            df.to_excel(outputFile)
+                            utils.output("\t\t (%.4f)" % (time.time() - _t) + " sec\n", self.verbose, 0)
+                
+                else:
+                    print("Selected operation can be provided only for capacity variables. Run the mgaOptimize method as operationRateinOutput as false")
+            utils.output("\n\t MGA optimization completed", self.verbose, 0) 
+
+            

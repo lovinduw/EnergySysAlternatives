@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fine"
 version = "2.3.7.1"
-description = "Framework for integrated energy systems assessment including MGA alternative solutions"
+description = "Framework for integrated energy systems assessment including modeling to generate alternative (MGA) solutions"
 readme = "README.md"
 authors = [
     { name = "Theresa Groß", email = "t.gross@fz-juelich.de" },
