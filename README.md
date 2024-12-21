@@ -17,5 +17,5 @@ This repositiry includes ETHOS.FINE framework with the option to do a modeling t
 
 3. Install fine library from GitHub with all the dependencies\
    \
-  pip install git+https://github.com/lovinduw/mga_in_fine.git#egg=fine
+  pip install git+https://github.com/lovinduw/EnergySysAlternatives#egg=fine
 
